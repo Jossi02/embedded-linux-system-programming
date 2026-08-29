@@ -39,7 +39,7 @@
 
 ## Historical Environment and Scope
 
-- 수업 당시 ES-101 및 Linux 4.19 계열 환경을 기준으로 작성한 historical course project입니다.
+- 수업 당시 ES-101 Linux 환경을 기준으로 작성한 historical course project입니다.
 - `gpio_request()`, `gpio_direction_*()`, `gpio_to_irq()` 등 legacy integer GPIO API를 유지합니다.
 - 최신 general-purpose Linux kernel이나 다른 board에서의 호환성을 보장하지 않습니다.
 - 2026 portfolio hardening 이후 실제 ES-101 hardware에서는 재검증하지 않았습니다.

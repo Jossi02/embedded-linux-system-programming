@@ -1,6 +1,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/atomic.h>
 #include <linux/interrupt.h>
 #include <linux/gpio.h>
 #include <linux/timer.h>
@@ -24,6 +25,7 @@ int led[4] = { 23, 24, 25, 1 };
 
 // 타이머 및 상태 전역 변수
 static struct timer_list timer;
+static atomic_t device_opened = ATOMIC_INIT(0);
 static int mode = STOP;
 static int manual_state[4] = { 0, 0, 0, 0 };
 
@@ -124,6 +126,9 @@ static int assign2_open(struct inode* inode, struct file* file) {
     int ret, i;
     printk(KERN_INFO "assign2_driver_open!\n");
 
+    if (atomic_cmpxchg(&device_opened, 0, 1) != 0)
+        return -EBUSY;
+
     timer_setup(&timer, timer_cb, 0);
     mode = STOP;
     flag = 0;
@@ -146,6 +151,7 @@ static int assign2_open(struct inode* inode, struct file* file) {
 err_gpio:
     while (--i >= 0)
         gpio_free(led[i]);
+    atomic_set(&device_opened, 0);
     return ret;
 }
 // GPIO 반환
@@ -159,6 +165,7 @@ static int assign2_release(struct inode* inode, struct file* file) {
         gpio_free(led[i]);
     }
 
+    atomic_set(&device_opened, 0);
     return 0;
 }
 // 파일 오퍼레이션 구조체
