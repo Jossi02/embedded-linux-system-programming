@@ -47,8 +47,7 @@ static void update_mode(int new_mode) {
     idx = 0;
 	// BLINK ALL, SHIFT면 켜기
     if (mode == BLINK_ALL || mode == SHIFT) {
-        timer.expires = jiffies + HZ * 2;
-        add_timer(&timer);
+        mod_timer(&timer, jiffies + HZ * 2);
     }
 }
 
@@ -74,28 +73,28 @@ static void timer_cb(struct timer_list* timer) {
     }
 
     if (mode == BLINK_ALL || mode == SHIFT) {
-        timer->expires = jiffies + HZ * 2;
-        add_timer(timer);
+        mod_timer(timer, jiffies + HZ * 2);
     }
 }
 
 // 저수준 파일 입출력 대응 함수
-static ssize_t assign2_write(struct file* file, const char* buf, size_t length, loff_t* ofs) {
+static ssize_t assign2_write(struct file* file, const char __user* buf, size_t length, loff_t* ofs) {
     char kbuf;
     int target = -1;
 
-    // 사용자 데이터 가져오기
-    if (copy_from_user(&kbuf, buf, 1)) return -EFAULT;
+    if (length == 0)
+        return 0;
+    if (copy_from_user(&kbuf, buf, 1))
+        return -EFAULT;
 
     printk(KERN_INFO "Driver received: %c, Mode: %d\n", kbuf, mode);
 	// 수동모드일 때
     if (mode == MANUAL) {
-        if (kbuf == '1') target = 0;
-        else if (kbuf == '2') target = 1;
-        else if (kbuf == '3') target = 2;
+        if (kbuf >= '0' && kbuf <= '3')
+            target = kbuf - '0';
         else if (kbuf == '4') {
             update_mode(STOP);
-            return 0;
+            return 1;
         }
 
         if (target != -1) {
@@ -118,27 +117,42 @@ static ssize_t assign2_write(struct file* file, const char* buf, size_t length, 
             update_mode(STOP);
         }
     }
-    return 0;
+    return 1;
 }
 // GPIO 초기화
 static int assign2_open(struct inode* inode, struct file* file) {
     int ret, i;
     printk(KERN_INFO "assign2_driver_open!\n");
 
+    timer_setup(&timer, timer_cb, 0);
+    mode = STOP;
+    flag = 0;
+    idx = 0;
+
     for (i = 0; i < 4; i++) {
         ret = gpio_request(led[i], "LED");
         if (ret < 0)
-        	return -1;
+			goto err_gpio;
+        ret = gpio_direction_output(led[i], LOW);
+        if (ret < 0) {
+            gpio_free(led[i]);
+            goto err_gpio;
+        }
+        manual_state[i] = 0;
     }
 
-    timer_setup(&timer, timer_cb, 0);
-
     return 0;
+
+err_gpio:
+    while (--i >= 0)
+        gpio_free(led[i]);
+    return ret;
 }
 // GPIO 반환
 static int assign2_release(struct inode* inode, struct file* file) {
     int i;
-    del_timer(&timer);
+    mode = STOP;
+    del_timer_sync(&timer);
 
     for (i = 0; i < 4; i++) {
         gpio_direction_output(led[i], LOW);
@@ -156,9 +170,15 @@ static struct file_operations assign2_fops = {
 };
 
 static int assign2_init(void) {
+	int ret;
+
 	printk(KERN_INFO "Assign2 Init!\n");
-  	// 문자 디바이스 등록
-    register_chrdev(DEV_MAJOR_NUMBER, DEV_NAME, &assign2_fops);
+	// 문자 디바이스 등록
+    ret = register_chrdev(DEV_MAJOR_NUMBER, DEV_NAME, &assign2_fops);
+    if (ret < 0) {
+        printk(KERN_ERR "assign2: register_chrdev failed: %d\n", ret);
+        return ret;
+    }
 
     return 0;
 }
